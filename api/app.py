@@ -137,8 +137,7 @@ llm_pipeline = None
 whisper_model = WhisperModel("base",
                              device="cpu",
                              compute_type="int8",
-                             download_root="/tmp",
-                             token=HF_TOKEN)
+                             download_root="/tmp")
 
 # --- 4. UTILITY FUNCTIONS ---
 VOICE_MAP = {
