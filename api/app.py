@@ -1,5 +1,5 @@
 # =================================================================
-# LIZ AI SERVER - VERSION 7.2 (PRODUCTION-READY)
+# LIZ AI SERVER - VERSION 7.3 (PRODUCTION-READY, FULL HF SUPPORT)
 # =================================================================
 import os, io, json, base64, asyncio, logging, time
 from pathlib import Path
@@ -33,7 +33,7 @@ logger = logging.getLogger("LizAI")
 # =================================================================
 # 1. FASTAPI & CORS
 # =================================================================
-app = FastAPI(title="Liz AI Music Player", version="7.2")
+app = FastAPI(title="Liz AI Music Player", version="7.3")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -163,7 +163,6 @@ def load_llm_pipeline():
     if llm_pipeline is None:
         logger.info(f"🚀 Loading LLM pipeline: {LLM_MODEL_NAME}")
         retry_download(LLM_MODEL_NAME)
-        from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
         model = AutoModelForCausalLM.from_pretrained(LLM_MODEL_NAME,
                                                      use_auth_token=HF_TOKEN)
         tokenizer = AutoTokenizer.from_pretrained(LLM_MODEL_NAME,
@@ -180,13 +179,13 @@ def load_whisper_model():
     global whisper_model
     if whisper_model is None:
         logger.info("🚀 Loading Faster Whisper model...")
-        retry_download("openai/whisper-base")  # หรือชื่อโมเดลจริง
-        from faster_whisper import WhisperModel
+        retry_download("openai/whisper-base")
         whisper_model = WhisperModel("base",
                                      device="cpu",
                                      compute_type="int8",
                                      download_root="/tmp",
-                                     local_files_only=False)
+                                     local_files_only=False,
+                                     use_auth_token=HF_TOKEN)
         logger.info("✅ Faster Whisper loaded successfully")
     return whisper_model
 
@@ -219,8 +218,7 @@ async def synthesize_speech(text: str, voice: str) -> bytes:
         communicate = edge_tts.Communicate(text, voice)
         buf = io.BytesIO()
         async for chunk in communicate.stream():
-            if chunk["type"] == "audio":
-                buf.write(chunk["data"])
+            if chunk["type"] == "audio": buf.write(chunk["data"])
         return buf.getvalue()
     except Exception:
         return b""
@@ -420,7 +418,7 @@ async def get_status():
 # =================================================================
 @app.on_event("startup")
 async def startup_event():
-    logger.info("🚀 Liz AI Server v7.2 Production starting...")
+    logger.info("🚀 Liz AI Server v7.3 Production starting...")
 
 
 # =================================================================
