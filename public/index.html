@@ -61,23 +61,27 @@
     </div>
 <script>
 document.addEventListener("DOMContentLoaded", () => {
+    // --- 1. ตัวแปร & Elements ---
     const uiElements = ['topLeftStatus', 'topRightInfo', 'activationButton', 'mainWaveCanvas'].map(id => document.getElementById(id));
     const [topLeftStatus, clock, dateDisplay, chatContainer, chatLog, chatMessages, chatInput, activationButton] =
         ['topLeftStatus', 'clock', 'dateDisplay', 'chatContainer', 'chatLog', 'chatMessages', 'chatInput', 'activationButton'].map(id => document.getElementById(id));
-
+    
+    // *** ตัวแปรสำหรับ WebSocket และ Microphone ***
     let ws, isStandby = false;
+    let isListening = false;
+    let mediaRecorder;
+    let audioChunks = [];
     let lastUserTranscriptBubble = null;
 
+
+    // --- 2. ฟังก์ชันหลักสำหรับ UI ---
     function updateConnectionStatus(message) {
-        // เพิ่มฟังก์ชันนี้เพื่อจัดการข้อความสถานะการเชื่อมต่อ
         const existingInfo = document.querySelector('#chatMessages .chat-bubble.info');
         if (existingInfo && existingInfo.textContent.includes("Connected to Liz Core") || existingInfo.textContent.includes("Disconnected")) {
-             // ถ้ามีข้อความสถานะเดิม ให้ลบออกก่อนเพิ่มใหม่ เพื่อไม่ให้ Log ยาวเกินไป
              existingInfo.remove();
         }
         appendChat('info', message);
     }
-
 
     function appendChat(role, mainText, subText = '') {
         const bubble = document.createElement("div");
@@ -98,21 +102,22 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+
+    // --- 3. การจัดการ WebSocket (แก้ไข URL แล้ว) ---
     function initWS() {
-        // *** การแก้ไขที่นี่: ใช้ Host ปัจจุบันของ Hugging Face Space ***
+        // *** การแก้ไข: ใช้ Host ปัจจุบันของ Hugging Face Space ***
         const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const ws_url = ws_protocol + '//' + window.location.host + '/ws'; 
 
         ws = new WebSocket(ws_url);
-
+        
         ws.onopen = () => updateConnectionStatus('Connected to Liz Core');
-
+        
         ws.onclose = () => { 
             updateConnectionStatus('Disconnected. Reconnecting...'); 
-            // ตั้งเวลาเชื่อมต่อใหม่ 3 วินาที
             setTimeout(initWS, 3000);
         };
-
+        
         ws.onerror = (error) => {
             console.error("WebSocket Error:", error);
             updateConnectionStatus('WebSocket error. See console for details.');
@@ -123,7 +128,8 @@ document.addEventListener("DOMContentLoaded", () => {
             const msg = JSON.parse(event.data);
             switch(msg.type) {
                 case "transcript":
-                    lastUserTranscriptBubble = appendChat("user pending", msg.text);
+                    // ถ้ามี transcript มา ให้ส่งมันไปประมวลผลต่อทันที
+                    sendToAI('text_input', { text: msg.text }); 
                     break;
                 case "ai_response":
                     if (lastUserTranscriptBubble) {
@@ -134,13 +140,11 @@ document.addEventListener("DOMContentLoaded", () => {
                     if (msg.audio_base64) new Audio("data:audio/wav;base64," + msg.audio_base64).play();
                     break;
                 case "info": case "error": 
-                    // ใช้ updateConnectionStatus สำหรับข้อความ info/error ที่มาจาก server เพื่อป้องกันการวนซ้ำ
                     updateConnectionStatus(msg.message); 
                     break;
-                // เพิ่ม Case สำหรับการจัดการ Action ที่อาจจะมาจาก Tool Call
                 case "play_audio_stream":
                     appendChat("assistant", `กำลังเล่นเพลง: ${msg.metadata.title} โดย ${msg.metadata.artist}`);
-                    // (โค้ดสำหรับเล่น stream URL ต้องจัดการด้วย Web Audio API หรือ HTML5 Audio)
+                    // โค้ดสำหรับเล่น stream URL ต้องถูกจัดการโดย Front-end
                     break;
                 case "stop_audio_stream":
                     appendChat("assistant", "หยุดเล่นเพลงแล้ว");
@@ -148,18 +152,65 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         };
     }
-
-    // *** เพิ่ม Event Listener สำหรับ Chat Input (Enter Key) ***
-    chatInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            const text = chatInput.value.trim();
-            if (text) {
-                // ส่งข้อความไปเหมือนกับส่งจาก audio transcript
-                sendToAI('text_input', { text: text }); 
-                chatInput.value = '';
-            }
+    
+    // --- 4. การจัดการปุ่ม Activation (ไมโครโฟน) ---
+    async function toggleListening() {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            updateConnectionStatus('Connection is closed. Please wait or reload.');
+            return;
         }
-    });
+
+        if (!isListening) {
+            // --- เริ่มต้นการฟัง ---
+            try {
+                // ขออนุญาตเข้าถึงไมโครโฟนจากเบราว์เซอร์
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                // ใช้ audio/wav เพื่อให้เข้ากันได้กับ Faster Whisper มากที่สุด
+                mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' }); 
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = event => {
+                    audioChunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = () => {
+                    // แปลง Chunks เป็น Blob
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' }); 
+                    
+                    // อ่าน Blob และแปลงเป็น Base64 string
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        const base64Audio = reader.result.split(',')[1];
+                        // ส่ง audio chunk ไปยัง WebSocket
+                        sendToAI('audio_chunk', { audio: base64Audio }); 
+                        updateConnectionStatus('Audio sent for processing...');
+                    };
+                    reader.readAsDataURL(audioBlob);
+                };
+                
+                mediaRecorder.start(); // เริ่มบันทึก
+                isListening = true;
+                activationButton.classList.replace('is-standby', 'is-listening');
+                updateConnectionStatus('Listening... Click again to stop.');
+
+            } catch (err) {
+                console.error("Microphone access denied:", err);
+                updateConnectionStatus('Microphone access denied or failed.');
+                activationButton.classList.remove('is-listening');
+                isListening = false;
+            }
+
+        } else {
+            // --- หยุดการฟัง ---
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                // สตรีมจะถูกส่งออกไปใน mediaRecorder.onstop
+            }
+            isListening = false;
+            activationButton.classList.replace('is-listening', 'is-thinking'); // เปลี่ยนเป็น thinking
+            updateConnectionStatus('Processing audio...');
+        }
+    }
 
 
     // --- Final Initialization ---
@@ -179,9 +230,27 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         updateClockAndDate();
         setInterval(updateClockAndDate, 1000);
+        
+        // --- ผูกปุ่มเข้ากับฟังก์ชัน ---
+        activationButton.classList.add('is-standby');
+        activationButton.addEventListener('click', toggleListening);
+
+        // --- ผูก Input Chat เข้ากับฟังก์ชัน ---
+        chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                const text = chatInput.value.trim();
+                if (text) {
+                    sendToAI('text_input', { text: text }); 
+                    appendChat("user", text); // เพิ่มข้อความที่ผู้ใช้พิมพ์
+                    chatInput.value = '';
+                }
+            }
+        });
+
+        // --- เริ่มต้น WebSocket ---
         initWS();
     }
-
+    
     init();
 });
 </script>
