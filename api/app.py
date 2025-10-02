@@ -111,7 +111,7 @@ manager = ConnectionManager()
 # *** ตัวแปร API Keys และ Hugging Face Token ***
 OPENWEATHERMAP_API_KEY = os.getenv("OPENWEATHERMAP_API_KEY")
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")
-HF_TOKEN = os.getenv("HUGGINGFACE_TOKEN")  # <--- Token สำหรับ Gated Model
+HF_TOKEN = os.getenv("HF_TOKEN")  # <--- ใช้ชื่อมาตรฐาน HF_TOKEN
 
 # *** โหลด Open-Source LLM (Mistral-7B) ***
 LLM_MODEL_NAME = "mistralai/Mistral-7B-Instruct-v0.2"
@@ -119,7 +119,7 @@ LLM_MODEL_NAME = "mistralai/Mistral-7B-Instruct-v0.2"
 
 def load_llm_pipeline():
     # โหลดโมเดลและ Pipeline (ใช้ CPU/RAM ของ Space)
-    # *** ส่ง Token เข้าไปเพื่อผ่านการตรวจสอบ Gated Repo ***
+    # ส่ง HF_TOKEN เข้าไปในการโหลด LLM
     model = AutoModelForCausalLM.from_pretrained(LLM_MODEL_NAME,
                                                  torch_dtype=None,
                                                  token=HF_TOKEN)
@@ -133,11 +133,10 @@ def load_llm_pipeline():
 
 
 llm_pipeline = None
-# โหลด Faster Whisper โดยส่ง HF_TOKEN และกำหนดตำแหน่งโหลดลง /tmp (ปลอดภัย)
-whisper_model = WhisperModel("base",
-                             device="cpu",
-                             compute_type="int8",
-                             download_root="/tmp")
+# โหลด Faster Whisper โดยไม่มี Argument token และกำหนดตำแหน่งโหลดลง /tmp
+whisper_model = WhisperModel(
+    "base", device="cpu", compute_type="int8",
+    download_root="/tmp")  # <--- ไม่ต้องใส่ token ตรงนี้แล้ว
 
 # --- 4. UTILITY FUNCTIONS ---
 VOICE_MAP = {
@@ -180,6 +179,7 @@ async def synthesize_speech(text: str, voice: str) -> bytes:
 
 async def transcribe_audio(audio_data: bytes, language: str) -> str:
     try:
+        # Faster Whisper จะอ่าน HF_TOKEN จาก Environment โดยอัตโนมัติ
         audio_file = io.BytesIO(audio_data)
         segments, _ = whisper_model.transcribe(audio_file,
                                                language=language,
