@@ -1,257 +1,171 @@
 <!doctype html>
-<html lang="th">
+<html lang="en">
 <head>
-    <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Liz AI Interface v6.1</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Noto+Sans+Thai:wght@400;500&display=swap" rel="stylesheet">
-    <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: 'Noto Sans Thai', 'Orbitron', sans-serif; color: #e0e0e0; }
-        .font-orbitron { font-family: 'Orbitron', sans-serif; }
-        #mainWaveCanvas { position: absolute; top: 50%; left: 0; width: 100%; height: 60vh; transform: translateY(-50%); z-index: 1; opacity: 0; transition: opacity 0.5s ease-in-out;}
-        #chatContainer { position: absolute; left: 2vw; top: 50%; transform: translateY(-50%) translateX(-120%); width: 350px; height: 500px; transition: transform 0.5s ease-in-out, opacity 0.5s ease-in-out; z-index: 10; opacity: 0; }
-        #chatContainer.visible { transform: translateY(-50%) translateX(0); opacity: 1; }
-        #chatInput { background: transparent; border: none; border-bottom: 2px solid rgba(56, 189, 248, 0.5); outline: none; transition: border-color 0.3s; font-size: 1.1rem; padding: 0.5rem 0.25rem; color: #7dd3fc; font-family: 'Orbitron', sans-serif; }
-        #chatLog { background: rgba(15, 23, 42, 0.85); border-radius: 0.75rem; padding: 1rem; border: 1px solid rgba(56, 189, 248, 0.3); backdrop-filter: blur(5px); }
-        .chat-bubble { padding: 0.75rem; font-size: 0.95rem; max-width: 90%; word-wrap: break-word; }
-        .user { background-color: rgba(2, 132, 199, 0.8); color: #e0f2fe; align-self: flex-end; border-radius: 12px 12px 2px 12px; }
-        .user.pending { opacity: 0.6; }
-        .assistant { background-color: rgba(30, 41, 59, 0.8); color: #99f6e4; align-self: flex-start; border-radius: 12px 12px 12px 2px; }
-        .info { background-color: rgba(55, 65, 81, 0.7); color: #fcd34d; align-self: center; border-radius: 8px; font-size: 0.8rem; }
-        #topLeftStatus, #topRightInfo, #activationButton { opacity: 0; transform: translateY(-20px); transition: all 0.8s ease-out; }
-        #activationButton { transform: translateY(20px); }
-        #topLeftStatus { left: 3vw; } #topRightInfo { right: 3vw; }
-        #topLeftStatus, #topRightInfo { position: absolute; top: 3vh; z-index: 10; }
-        #clock { font-size: 2.5rem; color: #38bdf8; text-shadow: 0 0 15px rgba(56, 189, 248, 0.8); font-weight: bold; }
-        #dateDisplay { font-size: 1rem; color: #94a3b8; margin-top: 0.5vh; }
-        #activationButton { position: absolute; bottom: 4vh; right: 4vw; z-index: 20; width: 80px; height: 80px; cursor: pointer; }
-        #activationButton .ring, #activationButton .dot { transition: all 0.4s ease-in-out; }
-        #activationButton .ring { stroke: #475569; } #activationButton .dot { fill: #475569; }
-        #activationButton.is-standby { transform: translateY(20px) scale(1.05); }
-        #activationButton.is-standby .ring { stroke: #38bdf8; filter: drop-shadow(0 0 10px #38bdf8); }
-        #activationButton.is-standby .dot { fill: #7dd3fc; animation: breathe-dot 3.5s infinite ease-in-out; }
-        #activationButton.is-listening { transform: translateY(20px) scale(1.1); }
-        #activationButton.is-listening .ring { stroke: #f87171; filter: drop-shadow(0 0 15px #ef4444); }
-        #activationButton.is-listening .dot { fill: #fca5a5; animation: pulse-dot 1.2s infinite; }
-        #activationButton.is-thinking .ring { stroke: #facc15; filter: drop-shadow(0 0 12px #facc15); animation: spin 2s linear infinite; }
-        #activationButton.is-thinking .dot { fill: #fde047; }
-        @keyframes breathe-dot { 0%, 100% { opacity: 0.7; } 50% { opacity: 1; } }
-        @keyframes pulse-dot { 0%, 100% { transform: scale(0.8); } 50% { transform: scale(1.1); } }
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Liz AI HUD Voice Control</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { margin:0; overflow:hidden; background:#000; color:white; }
+    #mainWaveCanvas { width:100%; height:60vh; display:block; opacity:0; transition:opacity 0.6s ease; }
+    #chatInput { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); width:300px; background:#111; border:1px solid #38bdf8; color:#38bdf8; padding:8px; border-radius:6px; font-family:monospace; }
+  </style>
 </head>
-<body class="relative w-screen h-screen">
-    <div id="topLeftStatus" class="font-orbitron">LIZ | MODE: SLEEP</div>
-    <div id="topRightInfo" class="font-orbitron">
-        <div id="clock"></div>
-        <div id="dateDisplay"></div>
-    </div>
-    <canvas id="mainWaveCanvas"></canvas>
-    <div id="chatContainer" class="flex flex-col">
-        <div id="chatLog" class="flex-grow overflow-y-auto mb-3">
-            <div id="chatMessages" class="flex flex-col space-y-3"></div>
-        </div>
-        <input type="text" id="chatInput" class="w-full" placeholder="Enter command...">
-    </div>
-    <div id="activationButton">
-        <svg viewBox="0 0 100 100" style="transform-origin: center;">
-            <circle class="ring" cx="50" cy="50" r="45" stroke-width="6" fill="none"></circle>
-            <circle class="dot" cx="50" cy="50" r="20" transform-origin="center"></circle>
-        </svg>
-    </div>
-<script>
-document.addEventListener("DOMContentLoaded", () => {
-    // --- 1. ตัวแปร & Elements ---
-    const uiElements = ['topLeftStatus', 'topRightInfo', 'activationButton', 'mainWaveCanvas'].map(id => document.getElementById(id));
-    const [topLeftStatus, clock, dateDisplay, chatContainer, chatLog, chatMessages, chatInput, activationButton] =
-        ['topLeftStatus', 'clock', 'dateDisplay', 'chatContainer', 'chatLog', 'chatMessages', 'chatInput', 'activationButton'].map(id => document.getElementById(id));
+<body>
+  <div class="absolute top-4 left-4 text-sm text-sky-400" id="statusLeft">SLEEP</div>
+  <canvas id="mainWaveCanvas"></canvas>
+  <input id="chatInput" type="text" placeholder="พิมพ์คำสั่ง เช่น: เปิดโหมดล่าม">
 
-    // *** ตัวแปรสำหรับ WebSocket และ Microphone ***
-    let ws, isStandby = false;
+  <script>
     let isListening = false;
-    let mediaRecorder;
-    let audioChunks = [];
-    let lastUserTranscriptBubble = null;
+    let isProcessing = false;
+    let waveState = "sleep"; // sleep | listening | thinking
 
+    // --- เสียงแจ้งเตือน ---
+    function playBeep(type="default"){
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
 
-    // --- 2. ฟังก์ชันหลักสำหรับ UI ---
-    // *** แก้ไข: ปรับปรุงให้ค้นหา Element สถานะเก่าอย่างปลอดภัยภายใน chatMessages เพื่อแก้ TypeError ***
-    function updateConnectionStatus(message) {
-        // ใช้ querySelectorAll เพื่อดึงข้อความสถานะทั้งหมดที่มีคลาส 'info' ภายใน chatMessages
-        const infoBubbles = chatMessages.querySelectorAll('.chat-bubble.info');
+      osc.connect(gain);
+      gain.connect(ctx.destination);
 
-        // วนลูปและลบ Element สถานะเก่าออกทั้งหมดอย่างปลอดภัย
-        infoBubbles.forEach(bubble => {
-            bubble.remove();
-        });
+      if(type==="listening"){ osc.frequency.value = 880; }      // โทนสูง
+      else if(type==="thinking"){ osc.frequency.value = 440; }  // โทนกลาง
+      else { osc.frequency.value = 220; }                       // โทนต่ำ
 
-        // เพิ่มข้อความสถานะใหม่
-        appendChat('info', message);
+      osc.type = "sine";
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.25); // เล่น 0.25s
     }
 
-    function appendChat(role, mainText, subText = '') {
-        const bubble = document.createElement("div");
-        bubble.className = `chat-bubble ${role}`;
-        bubble.innerHTML = `<div>${mainText}</div>` + (subText ? `<div class="text-xs opacity-70 mt-1">(${subText})</div>` : '');
-        chatMessages.appendChild(bubble);
-        chatLog.scrollTop = chatLog.scrollHeight;
-        chatContainer.classList.add("visible");
-        return bubble;
+    // --- Waveform ---
+    function setWaveState(state) {
+      waveState = state;
+      document.getElementById("statusLeft").textContent = state.toUpperCase();
+
+      // เล่นเสียงตามสถานะ
+      if(state==="listening") playBeep("listening");
+      else if(state==="thinking") playBeep("thinking");
+      else playBeep("sleep");
     }
 
-    function sendToAI(type, data) {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type, ...data }));
-            activationButton.classList.add('is-thinking');
-        } else {
-            updateConnectionStatus('Connection lost. Cannot send message.');
+    function initWaveGlow() {
+      const canvas = document.getElementById("mainWaveCanvas");
+      const ctx = canvas.getContext("2d");
+
+      function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight * 0.6;
+      }
+      window.addEventListener("resize", resize);
+      resize();
+
+      let phase = 0;
+
+      function draw() {
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+        const midY = canvas.height/2;
+
+        if (waveState==="sleep") {
+          ctx.beginPath();
+          ctx.lineWidth=1.5;
+          ctx.strokeStyle="#6366f1";
+          ctx.shadowBlur=15; ctx.shadowColor="#6366f1";
+          const amp=10, freq=0.01;
+          for(let x=0;x<canvas.width;x++){
+            const y=midY+Math.sin(x*freq+phase)*amp;
+            x===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+          }
+          ctx.stroke();
         }
-    }
-
-
-    // --- 3. การจัดการ WebSocket (แก้ไข URL แล้ว) ---
-    function initWS() {
-        // *** การแก้ไข: ใช้ Host ปัจจุบันของ Hugging Face Space ***
-        const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const ws_url = ws_protocol + '//' + window.location.host + '/ws'; 
-
-        ws = new WebSocket(ws_url);
-
-        ws.onopen = () => updateConnectionStatus('Connected to Liz Core');
-
-        ws.onclose = () => { 
-            updateConnectionStatus('Disconnected. Reconnecting...'); 
-            // ตั้งเวลาเชื่อมต่อใหม่ 3 วินาที
-            setTimeout(initWS, 3000);
-        };
-
-        ws.onerror = (error) => {
-            console.error("WebSocket Error:", error);
-            updateConnectionStatus('WebSocket error. See console for details.');
+        else if (waveState==="listening") {
+          ctx.beginPath();
+          ctx.lineWidth=3;
+          ctx.strokeStyle="#06b6d4";
+          ctx.shadowBlur=25; ctx.shadowColor="#06b6d4";
+          const amp=40, freq=0.025;
+          for(let x=0;x<canvas.width;x++){
+            const y=midY+Math.sin(x*freq+phase)*amp;
+            x===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+          }
+          ctx.stroke();
         }
-
-        ws.onmessage = (event) => {
-            activationButton.classList.remove('is-thinking');
-            const msg = JSON.parse(event.data);
-            switch(msg.type) {
-                case "transcript":
-                    // ส่ง transcript ไปประมวลผลต่อทันที
-                    sendToAI('text_input', { text: msg.text }); 
-                    break;
-                case "ai_response":
-                    if (lastUserTranscriptBubble) {
-                        lastUserTranscriptBubble.classList.remove("pending");
-                        lastUserTranscriptBubble = null;
-                    }
-                    appendChat("assistant", msg.ai_text, msg.original_text || '');
-                    if (msg.audio_base64) new Audio("data:audio/wav;base64," + msg.audio_base64).play();
-                    break;
-                case "info": case "error": 
-                    updateConnectionStatus(msg.message); 
-                    break;
-                case "play_audio_stream":
-                    appendChat("assistant", `กำลังเล่นเพลง: ${msg.metadata.title} โดย ${msg.metadata.artist}`);
-                    break;
-                case "stop_audio_stream":
-                    appendChat("assistant", "หยุดเล่นเพลงแล้ว");
-                    break;
+        else if (waveState==="thinking") {
+          const colors=["#f59e0b","#ec4899","#3b82f6"];
+          colors.forEach((c,i)=>{
+            ctx.beginPath();
+            ctx.lineWidth=2;
+            ctx.strokeStyle=c;
+            ctx.shadowBlur=20; ctx.shadowColor=c;
+            const amp=20+i*15, freq=0.015+i*0.005;
+            for(let x=0;x<canvas.width;x++){
+              const y=midY+Math.sin(x*freq+phase+i)*amp;
+              x===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
             }
-        };
+            ctx.stroke();
+          });
+        }
+        phase+= waveState==="sleep"?0.01 : waveState==="listening"?0.08 : 0.05;
+        requestAnimationFrame(draw);
+      }
+      draw();
+      canvas.style.opacity=1;
     }
 
-    // --- 4. การจัดการปุ่ม Activation (ไมโครโฟน) ---
-    async function toggleListening() {
-        if (!ws || ws.readyState !== WebSocket.OPEN) {
-            updateConnectionStatus('Connection is closed. Please wait or reload.');
-            return;
-        }
+    function updateWaveState(){
+      if (isProcessing) setWaveState("thinking");
+      else if (isListening) setWaveState("listening");
+      else setWaveState("sleep");
+    }
+    function startListening(){ isListening=true; isProcessing=false; updateWaveState();}
+    function stopListening(){ isListening=false; updateWaveState();}
+    function startProcessing(){ isProcessing=true; updateWaveState();}
+    function stopProcessing(){ isProcessing=false; updateWaveState();}
 
-        if (!isListening) {
-            // --- เริ่มต้นการฟัง ---
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-                audioChunks = [];
+    // --- Voice Commands ---
+    function initVoiceControl(){
+      if(!('webkitSpeechRecognition' in window)){
+        console.warn("SpeechRecognition ไม่รองรับใน browser นี้");
+        return;
+      }
+      const recognition = new webkitSpeechRecognition();
+      recognition.lang = "th-TH";
+      recognition.continuous = true;
+      recognition.interimResults = false;
 
-                mediaRecorder.ondataavailable = event => {
-                    audioChunks.push(event.data);
-                };
+      recognition.onresult = (event)=>{
+        const transcript = event.results[event.results.length-1][0].transcript.trim();
+        console.log("🎙️ ได้ยิน:", transcript);
+        handleCommand(transcript);
+      };
 
-                mediaRecorder.onstop = () => {
-                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' }); 
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                        const base64Audio = reader.result.split(',')[1];
-                        sendToAI('audio_chunk', { audio: base64Audio }); 
-                        updateConnectionStatus('Audio sent for processing...');
-                    };
-                    reader.readAsDataURL(audioBlob);
-                };
-
-                mediaRecorder.start();
-                isListening = true;
-                activationButton.classList.replace('is-standby', 'is-listening');
-                updateConnectionStatus('Listening... Click again to stop.');
-
-            } catch (err) {
-                console.error("Microphone access denied:", err);
-                updateConnectionStatus('Microphone access denied or failed.');
-                activationButton.classList.remove('is-listening');
-                isListening = false;
-            }
-
-        } else {
-            // --- หยุดการฟัง ---
-            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-                mediaRecorder.stop();
-            }
-            isListening = false;
-            activationButton.classList.replace('is-listening', 'is-thinking');
-            updateConnectionStatus('Processing audio...');
-        }
+      recognition.onerror = (e)=> console.error("Voice error:",e);
+      recognition.start();
     }
 
-
-    // --- Final Initialization ---
-    function init() {
-        // Boot-up Animation
-        setTimeout(() => {
-            uiElements.forEach(el => {
-                el.style.opacity = '1';
-                el.style.transform = 'translateY(0)';
-            });
-        }, 100);
-
-        function updateClockAndDate() {
-            const now = new Date();
-            clock.innerText = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-            dateDisplay.innerText = now.toLocaleDateString("en-US", { weekday: 'short', month: 'short', day: 'numeric' });
-        }
-        updateClockAndDate();
-        setInterval(updateClockAndDate, 1000);
-
-        // --- ผูกปุ่มเข้ากับฟังก์ชัน ---
-        activationButton.classList.add('is-standby');
-        activationButton.addEventListener('click', toggleListening);
-
-        // --- ผูก Input Chat เข้ากับฟังก์ชัน ---
-        chatInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                const text = chatInput.value.trim();
-                if (text) {
-                    sendToAI('text_input', { text: text }); 
-                    appendChat("user", text); // เพิ่มข้อความที่ผู้ใช้พิมพ์
-                    chatInput.value = '';
-                }
-            }
-        });
-
-        // --- เริ่มต้น WebSocket ---
-        initWS();
+    // --- Command Handler ---
+    function handleCommand(cmd){
+      cmd = cmd.toLowerCase();
+      if(cmd.includes("เปิดโหมดล่าม") || cmd.includes("start listening")) startListening();
+      else if(cmd.includes("หยุดล่าม") || cmd.includes("stop listening")) stopListening();
+      else if(cmd.includes("คิด") || cmd.includes("thinking")) startProcessing();
+      else if(cmd.includes("พัก") || cmd.includes("sleep")) { stopListening(); stopProcessing(); }
     }
 
-    init();
-});
-</script>
+    // --- Input Command (Text) ---
+    document.getElementById("chatInput").addEventListener("keypress",e=>{
+      if(e.key==="Enter"){
+        handleCommand(e.target.value);
+        e.target.value="";
+      }
+    });
+
+    // --- Init ---
+    initWaveGlow();
+    updateWaveState();
+    initVoiceControl();
+  </script>
 </body>
 </html>
