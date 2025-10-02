@@ -133,7 +133,12 @@ def load_llm_pipeline():
 
 
 llm_pipeline = None
-whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
+# โหลด Faster Whisper โดยส่ง HF_TOKEN และกำหนดตำแหน่งโหลดลง /tmp (ปลอดภัย)
+whisper_model = WhisperModel("base",
+                             device="cpu",
+                             compute_type="int8",
+                             download_root="/tmp",
+                             token=HF_TOKEN)
 
 # --- 4. UTILITY FUNCTIONS ---
 VOICE_MAP = {
