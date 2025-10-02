@@ -7,7 +7,6 @@ from pathlib import Path
 
 # *** Imports สำหรับ LLM Open-Source ***
 from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
-# ต้องเพิ่มไลบรารีนี้ใน requirements.txt: huggingface-hub
 from huggingface_hub import hf_hub_download
 # ***********************************
 
@@ -134,9 +133,11 @@ def load_llm_pipeline():
 
 llm_pipeline = None
 # โหลด Faster Whisper โดยไม่มี Argument token และกำหนดตำแหน่งโหลดลง /tmp
-whisper_model = WhisperModel(
-    "base", device="cpu", compute_type="int8",
-    download_root="/tmp")  # <--- ไม่ต้องใส่ token ตรงนี้แล้ว
+# Faster Whisper จะอ่าน HF_TOKEN จาก Environment Variable โดยตรง
+whisper_model = WhisperModel("base",
+                             device="cpu",
+                             compute_type="int8",
+                             download_root="/tmp")
 
 # --- 4. UTILITY FUNCTIONS ---
 VOICE_MAP = {
