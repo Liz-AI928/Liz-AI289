@@ -1,23 +1,28 @@
 # =================================================================
-# LIZ AI SERVER - VERSION 7.0 (MUSIC PLAYER UPDATE)
+# LIZ AI SERVER - VERSION 7.0 (MUSIC PLAYER UPDATE - PURE OPEN-SOURCE)
 # =================================================================
-import os, io, json, base64, requests, asyncio, datetime, pytz, logging
+import os, io, json, base64, requests, asyncio, logging
 from typing import List
-from pathlib import Path  # <--- NEW IMPORT
+from pathlib import Path
+
+# *** Imports สำหรับ LLM Open-Source ***
+from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
+# ***********************************
+
 import edge_tts
 from faster_whisper import WhisperModel
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles  # <--- NEW IMPORT
-from fastapi.responses import HTMLResponse  # <--- NEW IMPORT
-from openai import AsyncOpenAI
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
+
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base, Mapped, mapped_column
 from sqlalchemy import Integer, String, DateTime, Text, select
 import yt_dlp
 
 # --- 1. INITIALIZATION & CONFIG ---
-app = FastAPI(title="Liz AI Music Player", version="7.0.0")
+app = FastAPI(title="Liz AI Music Player", version="7.0.0 (Pure Free)")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -81,7 +86,7 @@ async def get_all_memories_as_text(session: AsyncSession,
     return "\n".join([f"- {mem.key}: {mem.value}" for mem in memories])
 
 
-# --- 3. CONNECTION MANAGER & API CLIENTS ---
+# --- 3. CONNECTION MANAGER & CLIENTS ---
 class ConnectionManager:
 
     def __init__(self):
@@ -101,11 +106,28 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+# *** ตัวแปร API Keys ที่ต้องใช้ (SERPER/OPENWEATHERMAP ยังใช้ได้ฟรี) ***
 OPENWEATHERMAP_API_KEY = os.getenv("OPENWEATHERMAP_API_KEY")
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 
-client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+# *** โหลด Open-Source LLM (Mistral-7B) ***
+LLM_MODEL_NAME = "mistralai/Mistral-7B-Instruct-v0.2"
+
+
+def load_llm_pipeline():
+    # โหลดโมเดลและ Pipeline (ใช้ CPU/RAM ของ Space)
+    model = AutoModelForCausalLM.from_pretrained(LLM_MODEL_NAME,
+                                                 torch_dtype=None)
+    tokenizer = AutoTokenizer.from_pretrained(LLM_MODEL_NAME)
+    return pipeline(
+        "text-generation",
+        model=model,
+        tokenizer=tokenizer,
+        device=-1,  # ใช้ CPU
+    )
+
+
+llm_pipeline = None
 whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
 
 # --- 4. UTILITY FUNCTIONS ---
@@ -117,22 +139,21 @@ VOICE_MAP = {
 }
 
 
+# *** ใช้ LLM Pipeline ฟรีสำหรับการแปลภาษา ***
 async def translate_text(text: str, target_lang: str) -> str:
-    if not text: return ""
+    if not text or not llm_pipeline: return ""
     try:
-        resp = await client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{
-                "role":
-                "system",
-                "content":
-                f"Translate to {target_lang}. Provide only the translated text."
-            }, {
-                "role": "user",
-                "content": text
-            }])
-        return resp.choices[0].message.content.strip()
+        # ใช้ Prompt ที่เน้นการแปลภาษา
+        prompt = f"Translate the following text to {target_lang}. Only provide the translated text. Text: \"{text}\""
+        response = await asyncio.to_thread(llm_pipeline,
+                                           prompt,
+                                           max_new_tokens=100,
+                                           do_sample=False,
+                                           temperature=0.1)
+        # ดึงข้อความตอบกลับและลบ Prompt ออก
+        return response[0]['generated_text'].replace(prompt, '').strip()
     except Exception as e:
+        logger.error(f"Translation Error (LLM): {e}")
         return f"[Translation Error: {e}]"
 
 
@@ -233,189 +254,70 @@ def set_interpreter_mode(on: bool, source_language: str, target_language: str):
     return {"status": "mode set"}
 
 
-TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "play_youtube_music",
-            "description": "ค้นหาและเล่นเพลงจาก YouTube ตามชื่อเพลง",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string"
-                    }
-                },
-                "required": ["query"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "stop_music",
-            "description": "หยุดเล่นเพลงที่กำลังเล่นอยู่",
-            "parameters": {
-                "type": "object",
-                "properties": {}
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "google_search",
-            "description": "ค้นหาข้อมูลเรียลไทม์จาก Google",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string"
-                    }
-                },
-                "required": ["query"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_weather",
-            "description": "ดูสภาพอากาศปัจจุบัน",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "lat": {
-                        "type": "string"
-                    },
-                    "lon": {
-                        "type": "string"
-                    }
-                }
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "remember_this",
-            "description": "บันทึกข้อมูลเกี่ยวกับผู้ใช้",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "key": {
-                        "type": "string"
-                    },
-                    "value": {
-                        "type": "string"
-                    }
-                },
-                "required": ["key", "value"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "set_interpreter_mode",
-            "description": "เปิด/ปิดโหมดล่ามแปลภาษาสด",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "on": {
-                        "type": "boolean"
-                    },
-                    "source_language": {
-                        "type": "string"
-                    },
-                    "target_language": {
-                        "type": "string"
-                    }
-                },
-                "required": ["on"]
-            }
-        }
-    },
-]
+# ลบ TOOLS LIST ออกไป
 
 
-# --- 6. CORE AI LOGIC ---
+# --- 6. CORE AI LOGIC (ปรับเป็น Manual Tool Dispatch) ---
 async def ask_ai_with_tools(session: AsyncSession, question: str,
                             history: list, session_state: dict) -> dict:
+    if not llm_pipeline:
+        return {
+            "answer": "โมเดล AI ยังไม่พร้อมใช้งาน โปรดรอสักครู่",
+            "history": history
+        }
+
+    # --- 1. ตรวจสอบและเรียกใช้ Tools ด้วย Logic Python (คำสั่งตรง) ---
+
+    q_lower = question.lower()
+
+    # ตรวจสอบ Music Player
+    if "เล่นเพลง" in q_lower or "เปิดเพลง" in q_lower:
+        return {"answer": play_youtube_music(question), "history": history}
+    if "หยุดเพลง" in q_lower:
+        return {"answer": stop_music(), "history": history}
+
+    # --- 2. สร้าง Prompt และเรียก LLM ---
     memory_context = await get_all_memories_as_text(session)
     system_prompt = f"""You are 'Liz', a helpful AI assistant. Always respond in Thai.
     User's info:\n{memory_context}
-    When asked to play music, use 'play_youtube_music'. To stop, use 'stop_music'. For real-time info, use 'google_search'."""
-    messages = [{
-        "role": "system",
-        "content": system_prompt
-    }] + history + [{
-        "role": "user",
-        "content": question
-    }]
+    You must NOT use external tools except for the information provided below. Just provide a conversational response."""
+
+    # สร้าง Prompt ที่รวม History และ Question
+    full_prompt = f"### System Instruction:\n{system_prompt}\n\n"
+    for msg in history:
+        role = "Assistant" if msg["role"] == "assistant" else "User"
+        full_prompt += f"### {role}: {msg['content']}\n"
+    full_prompt += f"### User: {question}\n### Assistant: "
+
     try:
-        response = await client.chat.completions.create(model="gpt-4o-mini",
-                                                        messages=messages,
-                                                        tools=TOOLS,
-                                                        tool_choice="auto")
-        response_message = response.choices[0].message
-        tool_calls = getattr(response_message, "tool_calls", None)
-        if tool_calls:
-            messages.append(response_message)
-            available_functions = {
-                "get_weather": get_weather,
-                "google_search": google_search,
-                "remember_this": remember_this,
-                "set_interpreter_mode": set_interpreter_mode,
-                "play_youtube_music": play_youtube_music,
-                "stop_music": stop_music
-            }
-            for tool_call in tool_calls:
-                function_name = tool_call.function.name
-                function_args = json.loads(tool_call.function.arguments)
-                if function_name == "remember_this":
-                    await save_memory(session, **function_args)
-                    function_response = {"status": "remembered"}
-                elif function_name == "set_interpreter_mode":
-                    session_state.update(
-                        interpreter_mode_on=function_args.get('on', False),
-                        source_lang=function_args.get('source_language', 'th'),
-                        target_lang=function_args.get('target_language', 'en'))
-                    if session_state['interpreter_mode_on']:
-                        session_state['expected_lang'] = session_state[
-                            'source_lang']
-                    function_response = {"status": "mode updated"}
-                else:
-                    function_response = available_functions[function_name](
-                        **function_args)
+        # เรียก LLM Pipeline แบบ Asynchronous
+        response = await asyncio.to_thread(
+            llm_pipeline,
+            full_prompt,
+            max_new_tokens=256,
+            do_sample=True,
+            temperature=0.7,
+            return_full_text=False  # ให้ Return เฉพาะข้อความที่สร้างใหม่
+        )
 
-                # Check if the tool wants to perform a direct action
-                if isinstance(function_response,
-                              dict) and "action" in function_response:
-                    return {"answer": function_response, "history": messages}
+        final_answer = response[0]['generated_text'].strip()
 
-                messages.append({
-                    "tool_call_id":
-                    tool_call.id,
-                    "role":
-                    "tool",
-                    "name":
-                    function_name,
-                    "content":
-                    json.dumps(function_response, ensure_ascii=False)
-                })
+        messages = history + [{
+            "role": "user",
+            "content": question
+        }, {
+            "role": "assistant",
+            "content": final_answer
+        }]
 
-            second_response = await client.chat.completions.create(
-                model="gpt-4o-mini", messages=messages)
-            final_answer = second_response.choices[0].message.content.strip()
-        else:
-            final_answer = response_message.content.strip()
+        return {"answer": final_answer, "history": messages[-6:]}
 
-        messages.append({"role": "assistant", "content": final_answer})
-        return {"answer": final_answer, "history": messages}
     except Exception as e:
-        logger.error(f"AI Logic Error: {e}", exc_info=True)
-        return {"answer": f"เกิดข้อผิดพลาด: {e}", "history": messages}
+        logger.error(f"AI Logic Error (LLM Pipeline): {e}", exc_info=True)
+        return {
+            "answer": f"เกิดข้อผิดพลาดในการประมวลผล: {e}",
+            "history": history
+        }
 
 
 # --- 7. PROACTIVE TASK ---
@@ -426,6 +328,12 @@ async def proactive_task():
 
 @app.on_event("startup")
 async def startup_event():
+    # โหลด LLM Pipeline เมื่อแอปพลิเคชันเริ่มต้น
+    global llm_pipeline
+    logger.info(f"🚀 Loading LLM pipeline: {LLM_MODEL_NAME}")
+    llm_pipeline = await asyncio.to_thread(load_llm_pipeline)
+    logger.info("✅ LLM Pipeline loaded successfully.")
+
     asyncio.create_task(proactive_task())
 
 
@@ -521,38 +429,26 @@ async def websocket_endpoint(ws: WebSocket,
 
 
 # --- 9. ROOT & RUN SERVER (UPDATED FOR STATIC FILES) ---
-
-# 1. กำหนด Base Directory เพื่อให้ FastAPI หาโฟลเดอร์ public ได้
-# 'Path(__file__).resolve().parent' ชี้ไปที่ /code/api
-# '.parent' ตัวที่สองจะชี้ไปที่ /code (root ของ repo)
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "public"
 
-# 2. Mount Static Files: ให้บริการไฟล์ในโฟลเดอร์ public ผ่าน URL /static
-# เช่น /static/style.css จะเข้าถึงไฟล์ public/style.css
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
-# 3. Root Endpoint: เปลี่ยนจากการส่ง JSON เป็นการส่ง index.html
 @app.get("/", response_class=HTMLResponse)
 async def get_root():
     HTML_FILE_PATH = STATIC_DIR / "index.html"
 
-    # ตรวจสอบว่าไฟล์ HTML อยู่จริงหรือไม่
     if not HTML_FILE_PATH.exists():
-        # ถ้าไม่มี index.html ให้ส่ง JSON status กลับไปแทน
         return {"status": "Liz AI server is running. (No index.html found)"}
 
-    # อ่านไฟล์ HTML และส่งกลับ
     with open(HTML_FILE_PATH, 'r', encoding='utf-8') as f:
         html_content = f.read()
     return html_content
 
 
-# 4. API Status Endpoint (ถ้าต้องการเก็บไว้)
 @app.get("/status")
 async def get_status():
-    # นี่คือ Endpoint เดิมที่เคยแสดงที่ Root URL
     return {"status": "Liz AI server is running."}
 
 
