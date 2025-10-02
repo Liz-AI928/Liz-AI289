@@ -3,10 +3,13 @@
 # =================================================================
 import os, io, json, base64, requests, asyncio, datetime, pytz, logging
 from typing import List
+from pathlib import Path  # <--- NEW IMPORT
 import edge_tts
 from faster_whisper import WhisperModel
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles  # <--- NEW IMPORT
+from fastapi.responses import HTMLResponse  # <--- NEW IMPORT
 from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base, Mapped, mapped_column
@@ -517,9 +520,39 @@ async def websocket_endpoint(ws: WebSocket,
         if cid in sessions_ws: del sessions_ws[cid]
 
 
-# --- 9. ROOT & RUN SERVER ---
-@app.get("/")
-async def root():
+# --- 9. ROOT & RUN SERVER (UPDATED FOR STATIC FILES) ---
+
+# 1. กำหนด Base Directory เพื่อให้ FastAPI หาโฟลเดอร์ public ได้
+# 'Path(__file__).resolve().parent' ชี้ไปที่ /code/api
+# '.parent' ตัวที่สองจะชี้ไปที่ /code (root ของ repo)
+BASE_DIR = Path(__file__).resolve().parent.parent
+STATIC_DIR = BASE_DIR / "public"
+
+# 2. Mount Static Files: ให้บริการไฟล์ในโฟลเดอร์ public ผ่าน URL /static
+# เช่น /static/style.css จะเข้าถึงไฟล์ public/style.css
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+# 3. Root Endpoint: เปลี่ยนจากการส่ง JSON เป็นการส่ง index.html
+@app.get("/", response_class=HTMLResponse)
+async def get_root():
+    HTML_FILE_PATH = STATIC_DIR / "index.html"
+
+    # ตรวจสอบว่าไฟล์ HTML อยู่จริงหรือไม่
+    if not HTML_FILE_PATH.exists():
+        # ถ้าไม่มี index.html ให้ส่ง JSON status กลับไปแทน
+        return {"status": "Liz AI server is running. (No index.html found)"}
+
+    # อ่านไฟล์ HTML และส่งกลับ
+    with open(HTML_FILE_PATH, 'r', encoding='utf-8') as f:
+        html_content = f.read()
+    return html_content
+
+
+# 4. API Status Endpoint (ถ้าต้องการเก็บไว้)
+@app.get("/status")
+async def get_status():
+    # นี่คือ Endpoint เดิมที่เคยแสดงที่ Root URL
     return {"status": "Liz AI server is running."}
 
 
