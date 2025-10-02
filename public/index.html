@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Liz AI Interface v6.1</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Noto+Sans+Thai:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Noto Sans Thai', 'Orbitron', sans-serif; color: #e0e0e0; }
+        .font-orbitron { font-family: 'Orbitron', sans-serif; }
+        #mainWaveCanvas { position: absolute; top: 50%; left: 0; width: 100%; height: 60vh; transform: translateY(-50%); z-index: 1; opacity: 0; transition: opacity 0.5s ease-in-out;}
+        #chatContainer { position: absolute; left: 2vw; top: 50%; transform: translateY(-50%) translateX(-120%); width: 350px; height: 500px; transition: transform 0.5s ease-in-out, opacity 0.5s ease-in-out; z-index: 10; opacity: 0; }
+        #chatContainer.visible { transform: translateY(-50%) translateX(0); opacity: 1; }
+        #chatInput { background: transparent; border: none; border-bottom: 2px solid rgba(56, 189, 248, 0.5); outline: none; transition: border-color 0.3s; font-size: 1.1rem; padding: 0.5rem 0.25rem; color: #7dd3fc; font-family: 'Orbitron', sans-serif; }
+        #chatLog { background: rgba(15, 23, 42, 0.85); border-radius: 0.75rem; padding: 1rem; border: 1px solid rgba(56, 189, 248, 0.3); backdrop-filter: blur(5px); }
+        .chat-bubble { padding: 0.75rem; font-size: 0.95rem; max-width: 90%; word-wrap: break-word; }
+        .user { background-color: rgba(2, 132, 199, 0.8); color: #e0f2fe; align-self: flex-end; border-radius: 12px 12px 2px 12px; }
+        .user.pending { opacity: 0.6; }
+        .assistant { background-color: rgba(30, 41, 59, 0.8); color: #99f6e4; align-self: flex-start; border-radius: 12px 12px 12px 2px; }
+        .info { background-color: rgba(55, 65, 81, 0.7); color: #fcd34d; align-self: center; border-radius: 8px; font-size: 0.8rem; }
+        #topLeftStatus, #topRightInfo, #activationButton { opacity: 0; transform: translateY(-20px); transition: all 0.8s ease-out; }
+        #activationButton { transform: translateY(20px); }
+        #topLeftStatus { left: 3vw; } #topRightInfo { right: 3vw; }
+        #topLeftStatus, #topRightInfo { position: absolute; top: 3vh; z-index: 10; }
+        #clock { font-size: 2.5rem; color: #38bdf8; text-shadow: 0 0 15px rgba(56, 189, 248, 0.8); font-weight: bold; }
+        #dateDisplay { font-size: 1rem; color: #94a3b8; margin-top: 0.5vh; }
+        #activationButton { position: absolute; bottom: 4vh; right: 4vw; z-index: 20; width: 80px; height: 80px; cursor: pointer; }
+        #activationButton .ring, #activationButton .dot { transition: all 0.4s ease-in-out; }
+        #activationButton .ring { stroke: #475569; } #activationButton .dot { fill: #475569; }
+        #activationButton.is-standby { transform: translateY(20px) scale(1.05); }
+        #activationButton.is-standby .ring { stroke: #38bdf8; filter: drop-shadow(0 0 10px #38bdf8); }
+        #activationButton.is-standby .dot { fill: #7dd3fc; animation: breathe-dot 3.5s infinite ease-in-out; }
+        #activationButton.is-listening { transform: translateY(20px) scale(1.1); }
+        #activationButton.is-listening .ring { stroke: #f87171; filter: drop-shadow(0 0 15px #ef4444); }
+        #activationButton.is-listening .dot { fill: #fca5a5; animation: pulse-dot 1.2s infinite; }
+        #activationButton.is-thinking .ring { stroke: #facc15; filter: drop-shadow(0 0 12px #facc15); animation: spin 2s linear infinite; }
+        #activationButton.is-thinking .dot { fill: #fde047; }
+        @keyframes breathe-dot { 0%, 100% { opacity: 0.7; } 50% { opacity: 1; } }
+        @keyframes pulse-dot { 0%, 100% { transform: scale(0.8); } 50% { transform: scale(1.1); } }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="relative w-screen h-screen">
+    <div id="topLeftStatus" class="font-orbitron">LIZ | MODE: SLEEP</div>
+    <div id="topRightInfo" class="font-orbitron">
+        <div id="clock"></div>
+        <div id="dateDisplay"></div>
+    </div>
+    <canvas id="mainWaveCanvas"></canvas>
+    <div id="chatContainer" class="flex flex-col">
+        <div id="chatLog" class="flex-grow overflow-y-auto mb-3">
+            <div id="chatMessages" class="flex flex-col space-y-3"></div>
+        </div>
+        <input type="text" id="chatInput" class="w-full" placeholder="Enter command...">
+    </div>
+    <div id="activationButton">
+        <svg viewBox="0 0 100 100" style="transform-origin: center;">
+            <circle class="ring" cx="50" cy="50" r="45" stroke-width="6" fill="none"></circle>
+            <circle class="dot" cx="50" cy="50" r="20" transform-origin="center"></circle>
+        </svg>
+    </div>
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+    const uiElements = ['topLeftStatus', 'topRightInfo', 'activationButton', 'mainWaveCanvas'].map(id => document.getElementById(id));
+    const [topLeftStatus, clock, dateDisplay, chatContainer, chatLog, chatMessages, chatInput, activationButton] =
+        ['topLeftStatus', 'clock', 'dateDisplay', 'chatContainer', 'chatLog', 'chatMessages', 'chatInput', 'activationButton'].map(id => document.getElementById(id));
+    
+    let ws, isStandby = false;
+    let lastUserTranscriptBubble = null;
+
+    function appendChat(role, mainText, subText = '') {
+        const bubble = document.createElement("div");
+        bubble.className = `chat-bubble ${role}`;
+        bubble.innerHTML = `<div>${mainText}</div>` + (subText ? `<div class="text-xs opacity-70 mt-1">(${subText})</div>` : '');
+        chatMessages.appendChild(bubble);
+        chatLog.scrollTop = chatLog.scrollHeight;
+        chatContainer.classList.add("visible");
+        return bubble;
+    }
+
+    function sendToAI(type, data) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type, ...data }));
+            activationButton.classList.add('is-thinking');
+        } else {
+            appendChat('error', 'Connection lost. Please reload.');
+        }
+    }
+
+    function initWS() {
+        const RENDER_URL = "liz-ai289.onrender.com"; // Your Live Server Address
+        ws = new WebSocket(`wss://${RENDER_URL}/ws`);
+        
+        ws.onopen = () => appendChat('info', 'Connected to Liz Core');
+        ws.onclose = () => { appendChat('error', 'Disconnected. Reconnecting...'); setTimeout(initWS, 3000);};
+        
+        ws.onmessage = (event) => {
+            activationButton.classList.remove('is-thinking');
+            const msg = JSON.parse(event.data);
+            switch(msg.type) {
+                case "transcript":
+                    lastUserTranscriptBubble = appendChat("user pending", msg.text);
+                    break;
+                case "ai_response":
+                    if (lastUserTranscriptBubble) {
+                        lastUserTranscriptBubble.classList.remove("pending");
+                        lastUserTranscriptBubble = null;
+                    }
+                    appendChat("assistant", msg.ai_text, msg.original_text || '');
+                    if (msg.audio_base64) new Audio("data:audio/wav;base64," + msg.audio_base64).play();
+                    break;
+                case "info": case "error": 
+                    appendChat(msg.type, msg.message); 
+                    break;
+            }
+        };
+    }
+
+    // --- Final Initialization ---
+    function init() {
+        // Boot-up Animation
+        setTimeout(() => {
+            uiElements.forEach(el => {
+                el.style.opacity = '1';
+                el.style.transform = 'translateY(0)';
+            });
+        }, 100);
+
+        function updateClockAndDate() {
+            const now = new Date();
+            clock.innerText = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+            dateDisplay.innerText = now.toLocaleDateString("en-US", { weekday: 'short', month: 'short', day: 'numeric' });
+        }
+        updateClockAndDate();
+        setInterval(updateClockAndDate, 1000);
+        initWS();
+    }
+    
+    init();
+});
+</script>
+</body>
+</html>
