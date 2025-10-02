@@ -134,10 +134,17 @@ def load_llm_pipeline():
 llm_pipeline = None
 # โหลด Faster Whisper โดยไม่มี Argument token และกำหนดตำแหน่งโหลดลง /tmp
 # Faster Whisper จะอ่าน HF_TOKEN จาก Environment Variable โดยตรง
-whisper_model = WhisperModel("base",
-                             device="cpu",
-                             compute_type="int8",
-                             download_root="/tmp")
+# *** Final Fix: ส่ง HF_TOKEN และบังคับให้ดาวน์โหลดออนไลน์ ***
+whisper_model = WhisperModel(
+    "base",
+    device="cpu",
+    compute_type="int8",
+    download_root="/tmp",
+    local_files_only=False,  # <--- แก้ปัญหา LocalEntryNotFoundError
+    # ส่ง Token ผ่าน Argument ของ Hugging Face Hub (ซึ่ง Faster Whisper จะส่งต่อ)
+    # Note: Argument นี้จะถูกส่งต่อไปยัง huggingface_hub.snapshot_download
+    # และควรเอาชนะปัญหา Invalid credentials ได้
+    download_kwargs={"token": HF_TOKEN})
 
 # --- 4. UTILITY FUNCTIONS ---
 VOICE_MAP = {
