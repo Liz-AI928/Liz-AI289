@@ -1,22 +1,42 @@
-# Use an official Python runtime as a parent image
+# =================================================================
+# Liz AI Dockerfile Optimized for Hugging Face Spaces
+# =================================================================
+
 FROM python:3.11-slim
 
-# Set the working directory in the container
+# Set working directory
 WORKDIR /code
 
-# Install system dependencies required by Whisper (ffmpeg)
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ffmpeg \
+        git \
+        curl \
+        build-essential \
+        wget \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Copy the requirements file into the container
+# Upgrade pip
+RUN pip install --upgrade pip
+
+# Copy requirements
 COPY ./requirements.txt /code/requirements.txt
 
-# Install any needed packages specified in requirements.txt
-RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
+# Install Python dependencies
+RUN pip install --no-cache-dir -r /code/requirements.txt
 
-# Copy the rest of the application code into the container
+# Copy application code
 COPY ./api /code/api
 COPY ./public /code/public
 
-# Command to run the application
-# Hugging Face Spaces default port is 7860
-CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:7860", "api.app:app"]
+# Expose default HF Spaces port
+EXPOSE 7860
+
+# Environment variables (optional defaults)
+ENV HF_TOKEN=""
+ENV OPENWEATHERMAP_API_KEY=""
+ENV SERPER_API_KEY=""
+
+# Gunicorn + Uvicorn worker with 1 worker, 2-minute timeout for large models
+CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:7860", "api.app:app", "--workers", "1", "--timeout", "120"]
