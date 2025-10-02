@@ -7,6 +7,8 @@ from pathlib import Path
 
 # *** Imports สำหรับ LLM Open-Source ***
 from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
+# ต้องเพิ่มไลบรารีนี้ใน requirements.txt: huggingface-hub
+from huggingface_hub import hf_hub_download
 # ***********************************
 
 import edge_tts
@@ -106,9 +108,10 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-# *** ตัวแปร API Keys ที่ต้องใช้ (SERPER/OPENWEATHERMAP ยังใช้ได้ฟรี) ***
+# *** ตัวแปร API Keys และ Hugging Face Token ***
 OPENWEATHERMAP_API_KEY = os.getenv("OPENWEATHERMAP_API_KEY")
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")
+HF_TOKEN = os.getenv("HUGGINGFACE_TOKEN")  # <--- Token สำหรับ Gated Model
 
 # *** โหลด Open-Source LLM (Mistral-7B) ***
 LLM_MODEL_NAME = "mistralai/Mistral-7B-Instruct-v0.2"
@@ -116,9 +119,11 @@ LLM_MODEL_NAME = "mistralai/Mistral-7B-Instruct-v0.2"
 
 def load_llm_pipeline():
     # โหลดโมเดลและ Pipeline (ใช้ CPU/RAM ของ Space)
+    # *** ส่ง Token เข้าไปเพื่อผ่านการตรวจสอบ Gated Repo ***
     model = AutoModelForCausalLM.from_pretrained(LLM_MODEL_NAME,
-                                                 torch_dtype=None)
-    tokenizer = AutoTokenizer.from_pretrained(LLM_MODEL_NAME)
+                                                 torch_dtype=None,
+                                                 token=HF_TOKEN)
+    tokenizer = AutoTokenizer.from_pretrained(LLM_MODEL_NAME, token=HF_TOKEN)
     return pipeline(
         "text-generation",
         model=model,
