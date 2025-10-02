@@ -64,9 +64,20 @@ document.addEventListener("DOMContentLoaded", () => {
     const uiElements = ['topLeftStatus', 'topRightInfo', 'activationButton', 'mainWaveCanvas'].map(id => document.getElementById(id));
     const [topLeftStatus, clock, dateDisplay, chatContainer, chatLog, chatMessages, chatInput, activationButton] =
         ['topLeftStatus', 'clock', 'dateDisplay', 'chatContainer', 'chatLog', 'chatMessages', 'chatInput', 'activationButton'].map(id => document.getElementById(id));
-    
+
     let ws, isStandby = false;
     let lastUserTranscriptBubble = null;
+
+    function updateConnectionStatus(message) {
+        // เพิ่มฟังก์ชันนี้เพื่อจัดการข้อความสถานะการเชื่อมต่อ
+        const existingInfo = document.querySelector('#chatMessages .chat-bubble.info');
+        if (existingInfo && existingInfo.textContent.includes("Connected to Liz Core") || existingInfo.textContent.includes("Disconnected")) {
+             // ถ้ามีข้อความสถานะเดิม ให้ลบออกก่อนเพิ่มใหม่ เพื่อไม่ให้ Log ยาวเกินไป
+             existingInfo.remove();
+        }
+        appendChat('info', message);
+    }
+
 
     function appendChat(role, mainText, subText = '') {
         const bubble = document.createElement("div");
@@ -83,17 +94,30 @@ document.addEventListener("DOMContentLoaded", () => {
             ws.send(JSON.stringify({ type, ...data }));
             activationButton.classList.add('is-thinking');
         } else {
-            appendChat('error', 'Connection lost. Please reload.');
+            updateConnectionStatus('Connection lost. Cannot send message.');
         }
     }
 
     function initWS() {
-        const RENDER_URL = "liz-ai289.onrender.com"; // Your Live Server Address
-        ws = new WebSocket(`wss://${RENDER_URL}/ws`);
-        
-        ws.onopen = () => appendChat('info', 'Connected to Liz Core');
-        ws.onclose = () => { appendChat('error', 'Disconnected. Reconnecting...'); setTimeout(initWS, 3000);};
-        
+        // *** การแก้ไขที่นี่: ใช้ Host ปัจจุบันของ Hugging Face Space ***
+        const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws_url = ws_protocol + '//' + window.location.host + '/ws'; 
+
+        ws = new WebSocket(ws_url);
+
+        ws.onopen = () => updateConnectionStatus('Connected to Liz Core');
+
+        ws.onclose = () => { 
+            updateConnectionStatus('Disconnected. Reconnecting...'); 
+            // ตั้งเวลาเชื่อมต่อใหม่ 3 วินาที
+            setTimeout(initWS, 3000);
+        };
+
+        ws.onerror = (error) => {
+            console.error("WebSocket Error:", error);
+            updateConnectionStatus('WebSocket error. See console for details.');
+        }
+
         ws.onmessage = (event) => {
             activationButton.classList.remove('is-thinking');
             const msg = JSON.parse(event.data);
@@ -110,11 +134,33 @@ document.addEventListener("DOMContentLoaded", () => {
                     if (msg.audio_base64) new Audio("data:audio/wav;base64," + msg.audio_base64).play();
                     break;
                 case "info": case "error": 
-                    appendChat(msg.type, msg.message); 
+                    // ใช้ updateConnectionStatus สำหรับข้อความ info/error ที่มาจาก server เพื่อป้องกันการวนซ้ำ
+                    updateConnectionStatus(msg.message); 
+                    break;
+                // เพิ่ม Case สำหรับการจัดการ Action ที่อาจจะมาจาก Tool Call
+                case "play_audio_stream":
+                    appendChat("assistant", `กำลังเล่นเพลง: ${msg.metadata.title} โดย ${msg.metadata.artist}`);
+                    // (โค้ดสำหรับเล่น stream URL ต้องจัดการด้วย Web Audio API หรือ HTML5 Audio)
+                    break;
+                case "stop_audio_stream":
+                    appendChat("assistant", "หยุดเล่นเพลงแล้ว");
                     break;
             }
         };
     }
+
+    // *** เพิ่ม Event Listener สำหรับ Chat Input (Enter Key) ***
+    chatInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            const text = chatInput.value.trim();
+            if (text) {
+                // ส่งข้อความไปเหมือนกับส่งจาก audio transcript
+                sendToAI('text_input', { text: text }); 
+                chatInput.value = '';
+            }
+        }
+    });
+
 
     // --- Final Initialization ---
     function init() {
@@ -135,7 +181,7 @@ document.addEventListener("DOMContentLoaded", () => {
         setInterval(updateClockAndDate, 1000);
         initWS();
     }
-    
+
     init();
 });
 </script>
