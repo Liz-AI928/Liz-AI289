@@ -3,158 +3,135 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Liz AI HUD Voice Control</title>
+  <title>Liz AI HUD Sci-Fi Wave</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body { margin:0; overflow:hidden; background:#000; color:white; }
-    #mainWaveCanvas { width:100%; height:60vh; display:block; opacity:0; transition:opacity 0.6s ease; }
-    #chatInput { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); width:300px; background:#111; border:1px solid #38bdf8; color:#38bdf8; padding:8px; border-radius:6px; font-family:monospace; }
+    #mainWaveCanvas { width:100%; height:100vh; display:block; }
+    #chatInput { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); width:300px;
+      background:#111; border:1px solid #38bdf8; color:#38bdf8; padding:8px;
+      border-radius:6px; font-family:monospace; }
+    .hud-label { position:absolute; top:20px; font-size:0.9rem; font-family:monospace; }
   </style>
 </head>
 <body>
-  <div class="absolute top-4 left-4 text-sm text-sky-400" id="statusLeft">SLEEP</div>
+  <div class="hud-label left-4 text-sky-400" id="statusLeft">SLEEP</div>
+  <div class="hud-label right-4 text-pink-400" id="statusRight">READY</div>
   <canvas id="mainWaveCanvas"></canvas>
   <input id="chatInput" type="text" placeholder="พิมพ์คำสั่ง เช่น: เปิดโหมดล่าม">
 
   <script>
-    let isListening = false;
-    let isProcessing = false;
     let waveState = "sleep"; // sleep | listening | thinking
 
-    // --- เสียงแจ้งเตือน ---
-    function playBeep(type="default"){
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-
-      if(type==="listening"){ osc.frequency.value = 880; }      // โทนสูง
-      else if(type==="thinking"){ osc.frequency.value = 440; }  // โทนกลาง
-      else { osc.frequency.value = 220; }                       // โทนต่ำ
-
-      osc.type = "sine";
-      gain.gain.setValueAtTime(0.2, ctx.currentTime);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.25); // เล่น 0.25s
+    // --- Particle System ---
+    class Particle {
+      constructor(x, y, color) {
+        this.x = x;
+        this.y = y;
+        this.angle = Math.random() * Math.PI * 2;
+        this.radius = Math.random() * 2 + 1;
+        this.orbit = Math.random() * 50 + 20;
+        this.speed = Math.random() * 0.02 + 0.01;
+        this.color = color;
+      }
+      update(cx, cy) {
+        this.angle += this.speed;
+        this.x = cx + Math.cos(this.angle) * this.orbit;
+        this.y = cy + Math.sin(this.angle) * this.orbit;
+      }
+      draw(ctx) {
+        ctx.beginPath();
+        ctx.fillStyle = this.color;
+        ctx.globalAlpha = 0.7;
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
-    // --- Waveform ---
     function setWaveState(state) {
       waveState = state;
       document.getElementById("statusLeft").textContent = state.toUpperCase();
-
-      // เล่นเสียงตามสถานะ
-      if(state==="listening") playBeep("listening");
-      else if(state==="thinking") playBeep("thinking");
-      else playBeep("sleep");
     }
 
-    function initWaveGlow() {
+    function initSciFiWave() {
       const canvas = document.getElementById("mainWaveCanvas");
       const ctx = canvas.getContext("2d");
 
       function resize() {
         canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight * 0.6;
+        canvas.height = window.innerHeight;
       }
       window.addEventListener("resize", resize);
       resize();
 
-      let phase = 0;
+      const particles = [];
+      for (let i = 0; i < 80; i++) {
+        particles.push(new Particle(canvas.width/2, canvas.height/2, "#38bdf8"));
+      }
+
+      let pulse = 0;
 
       function draw() {
         ctx.clearRect(0,0,canvas.width,canvas.height);
-        const midY = canvas.height/2;
 
-        if (waveState==="sleep") {
-          ctx.beginPath();
-          ctx.lineWidth=1.5;
-          ctx.strokeStyle="#6366f1";
-          ctx.shadowBlur=15; ctx.shadowColor="#6366f1";
-          const amp=10, freq=0.01;
-          for(let x=0;x<canvas.width;x++){
-            const y=midY+Math.sin(x*freq+phase)*amp;
-            x===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
-          }
-          ctx.stroke();
+        const cx = canvas.width/2;
+        const cy = canvas.height/2;
+
+        // --- Aura Glow ---
+        let gradient;
+        if (waveState === "sleep") {
+          gradient = ctx.createRadialGradient(cx,cy,50,cx,cy,200);
+          gradient.addColorStop(0,"rgba(99,102,241,0.5)");
+          gradient.addColorStop(1,"rgba(0,0,0,0)");
+        } else if (waveState === "listening") {
+          gradient = ctx.createRadialGradient(cx,cy,60,cx,cy,250);
+          gradient.addColorStop(0,"rgba(6,182,212,0.6)");
+          gradient.addColorStop(1,"rgba(0,0,0,0)");
+        } else if (waveState === "thinking") {
+          gradient = ctx.createRadialGradient(cx,cy,70,cx,cy,300);
+          gradient.addColorStop(0,"rgba(236,72,153,0.6)");
+          gradient.addColorStop(0.5,"rgba(59,130,246,0.5)");
+          gradient.addColorStop(1,"rgba(0,0,0,0)");
         }
-        else if (waveState==="listening") {
-          ctx.beginPath();
-          ctx.lineWidth=3;
-          ctx.strokeStyle="#06b6d4";
-          ctx.shadowBlur=25; ctx.shadowColor="#06b6d4";
-          const amp=40, freq=0.025;
-          for(let x=0;x<canvas.width;x++){
-            const y=midY+Math.sin(x*freq+phase)*amp;
-            x===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
-          }
-          ctx.stroke();
-        }
-        else if (waveState==="thinking") {
-          const colors=["#f59e0b","#ec4899","#3b82f6"];
-          colors.forEach((c,i)=>{
-            ctx.beginPath();
-            ctx.lineWidth=2;
-            ctx.strokeStyle=c;
-            ctx.shadowBlur=20; ctx.shadowColor=c;
-            const amp=20+i*15, freq=0.015+i*0.005;
-            for(let x=0;x<canvas.width;x++){
-              const y=midY+Math.sin(x*freq+phase+i)*amp;
-              x===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
-            }
-            ctx.stroke();
-          });
-        }
-        phase+= waveState==="sleep"?0.01 : waveState==="listening"?0.08 : 0.05;
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0,0,canvas.width,canvas.height);
+
+        // --- Pulse Circle ---
+        pulse += 0.05;
+        let radiusBase = waveState==="sleep" ? 60 : waveState==="listening" ? 120 : 90;
+        let radius = radiusBase + Math.sin(pulse)*10;
+
+        ctx.beginPath();
+        ctx.strokeStyle = waveState==="sleep" ? "#6366f1" :
+                          waveState==="listening" ? "#06b6d4" : "#f59e0b";
+        ctx.lineWidth = 3;
+        ctx.globalAlpha = 0.8;
+        ctx.arc(cx, cy, radius, 0, Math.PI*2);
+        ctx.stroke();
+
+        // --- Particles ---
+        particles.forEach(p=>{
+          if(waveState==="sleep") p.color="#6366f1";
+          else if(waveState==="listening") p.color="#06b6d4";
+          else p.color="#ec4899";
+
+          p.update(cx, cy);
+          p.draw(ctx);
+        });
+
         requestAnimationFrame(draw);
       }
       draw();
-      canvas.style.opacity=1;
     }
 
-    function updateWaveState(){
-      if (isProcessing) setWaveState("thinking");
-      else if (isListening) setWaveState("listening");
-      else setWaveState("sleep");
-    }
-    function startListening(){ isListening=true; isProcessing=false; updateWaveState();}
-    function stopListening(){ isListening=false; updateWaveState();}
-    function startProcessing(){ isProcessing=true; updateWaveState();}
-    function stopProcessing(){ isProcessing=false; updateWaveState();}
-
-    // --- Voice Commands ---
-    function initVoiceControl(){
-      if(!('webkitSpeechRecognition' in window)){
-        console.warn("SpeechRecognition ไม่รองรับใน browser นี้");
-        return;
-      }
-      const recognition = new webkitSpeechRecognition();
-      recognition.lang = "th-TH";
-      recognition.continuous = true;
-      recognition.interimResults = false;
-
-      recognition.onresult = (event)=>{
-        const transcript = event.results[event.results.length-1][0].transcript.trim();
-        console.log("🎙️ ได้ยิน:", transcript);
-        handleCommand(transcript);
-      };
-
-      recognition.onerror = (e)=> console.error("Voice error:",e);
-      recognition.start();
-    }
-
-    // --- Command Handler ---
     function handleCommand(cmd){
       cmd = cmd.toLowerCase();
-      if(cmd.includes("เปิดโหมดล่าม") || cmd.includes("start listening")) startListening();
-      else if(cmd.includes("หยุดล่าม") || cmd.includes("stop listening")) stopListening();
-      else if(cmd.includes("คิด") || cmd.includes("thinking")) startProcessing();
-      else if(cmd.includes("พัก") || cmd.includes("sleep")) { stopListening(); stopProcessing(); }
+      if(cmd.includes("เปิดโหมดล่าม")) setWaveState("listening");
+      else if(cmd.includes("หยุดล่าม")) setWaveState("sleep");
+      else if(cmd.includes("คิด")) setWaveState("thinking");
+      else if(cmd.includes("พัก")) setWaveState("sleep");
     }
 
-    // --- Input Command (Text) ---
     document.getElementById("chatInput").addEventListener("keypress",e=>{
       if(e.key==="Enter"){
         handleCommand(e.target.value);
@@ -162,10 +139,8 @@
       }
     });
 
-    // --- Init ---
-    initWaveGlow();
-    updateWaveState();
-    initVoiceControl();
+    // Init
+    initSciFiWave();
   </script>
 </body>
 </html>
