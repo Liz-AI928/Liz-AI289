@@ -63,6 +63,7 @@
 document.addEventListener("DOMContentLoaded", () => {
     // --- 1. ตัวแปร & Elements ---
     const uiElements = ['topLeftStatus', 'topRightInfo', 'activationButton', 'mainWaveCanvas'].map(id => document.getElementById(id));
+    // *** สำคัญ: ตรวจสอบให้แน่ใจว่าตัวแปรเหล่านี้ดึง Element มาได้จริงก่อนใช้งาน ***
     const [topLeftStatus, clock, dateDisplay, chatContainer, chatLog, chatMessages, chatInput, activationButton] =
         ['topLeftStatus', 'clock', 'dateDisplay', 'chatContainer', 'chatLog', 'chatMessages', 'chatInput', 'activationButton'].map(id => document.getElementById(id));
     
@@ -75,11 +76,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
     // --- 2. ฟังก์ชันหลักสำหรับ UI ---
+    // *** การแก้ไข: ปรับปรุงให้ค้นหา Element สถานะเก่าอย่างปลอดภัยภายใน chatMessages ***
     function updateConnectionStatus(message) {
-        const existingInfo = document.querySelector('#chatMessages .chat-bubble.info');
-        if (existingInfo && existingInfo.textContent.includes("Connected to Liz Core") || existingInfo.textContent.includes("Disconnected")) {
-             existingInfo.remove();
-        }
+        // ใช้ querySelectorAll เพื่อดึงข้อความสถานะทั้งหมดที่มีคลาส 'info' ภายใน chatMessages
+        const infoBubbles = chatMessages.querySelectorAll('.chat-bubble.info');
+        
+        // วนลูปและลบ Element สถานะเก่าออกทั้งหมดอย่างปลอดภัย
+        infoBubbles.forEach(bubble => {
+            bubble.remove();
+        });
+
+        // เพิ่มข้อความสถานะใหม่
         appendChat('info', message);
     }
 
@@ -105,7 +112,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // --- 3. การจัดการ WebSocket (แก้ไข URL แล้ว) ---
     function initWS() {
-        // *** การแก้ไข: ใช้ Host ปัจจุบันของ Hugging Face Space ***
         const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const ws_url = ws_protocol + '//' + window.location.host + '/ws'; 
 
@@ -144,7 +150,6 @@ document.addEventListener("DOMContentLoaded", () => {
                     break;
                 case "play_audio_stream":
                     appendChat("assistant", `กำลังเล่นเพลง: ${msg.metadata.title} โดย ${msg.metadata.artist}`);
-                    // โค้ดสำหรับเล่น stream URL ต้องถูกจัดการโดย Front-end
                     break;
                 case "stop_audio_stream":
                     appendChat("assistant", "หยุดเล่นเพลงแล้ว");
@@ -163,10 +168,8 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!isListening) {
             // --- เริ่มต้นการฟัง ---
             try {
-                // ขออนุญาตเข้าถึงไมโครโฟนจากเบราว์เซอร์
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                // ใช้ audio/wav เพื่อให้เข้ากันได้กับ Faster Whisper มากที่สุด
-                mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' }); 
+                mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
                 audioChunks = [];
 
                 mediaRecorder.ondataavailable = event => {
@@ -174,21 +177,17 @@ document.addEventListener("DOMContentLoaded", () => {
                 };
 
                 mediaRecorder.onstop = () => {
-                    // แปลง Chunks เป็น Blob
                     const audioBlob = new Blob(audioChunks, { type: 'audio/webm' }); 
-                    
-                    // อ่าน Blob และแปลงเป็น Base64 string
                     const reader = new FileReader();
                     reader.onload = () => {
                         const base64Audio = reader.result.split(',')[1];
-                        // ส่ง audio chunk ไปยัง WebSocket
                         sendToAI('audio_chunk', { audio: base64Audio }); 
                         updateConnectionStatus('Audio sent for processing...');
                     };
                     reader.readAsDataURL(audioBlob);
                 };
                 
-                mediaRecorder.start(); // เริ่มบันทึก
+                mediaRecorder.start();
                 isListening = true;
                 activationButton.classList.replace('is-standby', 'is-listening');
                 updateConnectionStatus('Listening... Click again to stop.');
@@ -204,10 +203,9 @@ document.addEventListener("DOMContentLoaded", () => {
             // --- หยุดการฟัง ---
             if (mediaRecorder && mediaRecorder.state !== 'inactive') {
                 mediaRecorder.stop();
-                // สตรีมจะถูกส่งออกไปใน mediaRecorder.onstop
             }
             isListening = false;
-            activationButton.classList.replace('is-listening', 'is-thinking'); // เปลี่ยนเป็น thinking
+            activationButton.classList.replace('is-listening', 'is-thinking');
             updateConnectionStatus('Processing audio...');
         }
     }
